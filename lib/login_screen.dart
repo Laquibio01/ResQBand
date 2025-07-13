@@ -27,39 +27,52 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _loginUser() async {
-    if (!_formKey.currentState!.validate()) return;
+  if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
+  setState(() => _isLoading = true);
 
-    try {
-      final user = await Database.authenticateUser(
-        _emailController.text.trim(),
-        _nameController.text.trim()
-      );
+  try {
+    final user = await Database.authenticateUser(
+      _emailController.text.trim(),
+      _nameController.text.trim()
+    );
 
-      if (user != null) {
-        if (!mounted) return;
+    if (user != null) {
+      if (!mounted) return;
+      
+      // Redirigir según el rol del usuario
+      if (user['role'] == 'Adulto Mayor') {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const HomePage()),
+          MaterialPageRoute(
+            builder: (context) => HomePage(email: _emailController.text.trim()),
+          ),
         );
-      } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Credenciales incorrectas o usuario no registrado')),
+      } else if (user['role'] == 'Cuidador') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => HomePage(email: _emailController.text.trim()),
+          ),
         );
       }
-    } catch (e) {
+    } else {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Error al iniciar sesión. Intenta nuevamente')),
+        const SnackBar(content: Text('Credenciales incorrectas o usuario no registrado')),
       );
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+    }
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Error al iniciar sesión. Intenta nuevamente')),
+    );
+  } finally {
+    if (mounted) {
+      setState(() => _isLoading = false);
     }
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -232,7 +245,6 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
-    Database.close();
     super.dispose();
   }
 }

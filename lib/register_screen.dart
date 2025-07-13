@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_app/main.dart';
+// import 'package:flutter_app/main.dart';
+import 'elderly_code_screen.dart';
+import 'caregiver_link_screen.dart';
 import 'services/database.dart'; // Importa el archivo de conexión
 
 class RegisterScreen extends StatefulWidget {
@@ -14,6 +16,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _addressController = TextEditingController();
+  final _emergencyContactNameController = TextEditingController();
   final _emergencyContactController = TextEditingController();
   final _allergiesController = TextEditingController();
   final _chronicConditionsController = TextEditingController();
@@ -71,26 +74,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
 Future<void> _registerUser() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_userType == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selecciona un tipo de usuario')),
-      );
-      return;
-    }
-    if (_userType == 'elderly' && (_selectedGender == null || _selectedBloodType == null || _selectedDate == null)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Completa todos los campos obligatorios')),
-      );
-      return;
-    }
+  if (!_formKey.currentState!.validate()) return;
+  if (_userType == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Selecciona un tipo de usuario')),
+    );
+    return;
+  }
 
-    setState(() => _isLoading = true);
+  setState(() => _isLoading = true);
 
+  try {
     // Verificar si el email ya existe
     final emailExists = await Database.emailExists(_emailController.text.trim());
     if (emailExists) {
-      setState(() => _isLoading = false);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Este correo electrónico ya está registrado')),
       );
@@ -109,47 +107,75 @@ Future<void> _registerUser() async {
 
     // Añadir campos específicos para adultos mayores
     if (_userType == 'elderly') {
-      userData.addAll(<String, dynamic>{
-        'gender': _selectedGender ?? '', // Proporciona un valor por defecto si es null
-        'bloodType': _selectedBloodType ?? '', // Proporciona un valor por defecto si es null
-        'birthDate': _selectedDate?.toIso8601String(),
+      if (_selectedGender == null || _selectedBloodType == null || _selectedDate == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Completa todos los campos obligatorios')),
+        );
+        return;
+      }
+
+      // Generar código único solo una vez
+      final uniqueCode = (100000 + (DateTime.now().millisecondsSinceEpoch % 900000)).toString();
+      
+      userData.addAll({
+        'gender': _selectedGender!,
+        'bloodType': _selectedBloodType!,
+        'birthDate': _selectedDate!.toIso8601String(),
         'address': _addressController.text.trim(),
         'emergencyContact': {
-          'phone': _emergencyContactController.text.trim(),
+        'name': _emergencyContactNameController.text.trim(),
+        'phone': _emergencyContactController.text.trim(),
         },
         'allergies': _allergiesController.text.trim().isNotEmpty
-            ? _allergiesController.text.trim().split(',')
+            ? _allergiesController.text.trim().split(',').map((e) => e.trim()).toList()
             : <String>[],
         'chronicConditions': _chronicConditionsController.text.trim().isNotEmpty
-            ? _chronicConditionsController.text.trim().split(',')
+            ? _chronicConditionsController.text.trim().split(',').map((e) => e.trim()).toList()
             : <String>[],
         'medications': _medicationsController.text.trim().isNotEmpty
-            ? _medicationsController.text.trim().split(',')
+            ? _medicationsController.text.trim().split(',').map((e) => e.trim()).toList()
             : <String>[],
+        'linkCode': uniqueCode,
       });
     }
 
-    // Insertar usuario en la base de datos
+    // Insertar usuario en la base de datos (una sola vez)
     final success = await Database.insertUser(userData);
-    setState(() => _isLoading = false);
-
-    if (success) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Registro exitoso')),
-      );
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const HomePage()),
-      );
-    } else {
-      if (!mounted) return;
+    
+    if (!success || !mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Error al registrar. Intenta nuevamente')),
       );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Registro exitoso')),
+    );
+
+    // Redirección según tipo de usuario
+    if (_userType == 'elderly') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ElderlyCodeScreen(email: _emailController.text.trim()),
+          ),
+        );
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => CaregiverLinkScreen(email: _emailController.text.trim()),
+          ),
+        );
+      }
+  } finally {
+    if (mounted) {
+      setState(() => _isLoading = false);
     }
   }
-
+}
 
   @override
   Widget build(BuildContext context) {
@@ -406,6 +432,24 @@ Future<void> _registerUser() async {
                 const SizedBox(height: 16),
 
                 TextFormField(
+                  controller: _emergencyContactNameController,
+                  decoration: InputDecoration(
+                    labelText: 'Nombre del contacto de emergencia*',
+                    prefixIcon: const Icon(Icons.person_pin, color: Color(0xFFB8CBB1)),
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                  validator: _userType == 'elderly'
+                      ? (value) => value!.isEmpty ? 'Ingresa el nombre del contacto de emergencia' : null
+                      : null,
+                ),
+                const SizedBox(height: 16),
+
+                TextFormField(
                   controller: _emergencyContactController,
                   keyboardType: TextInputType.phone,
                   decoration: InputDecoration(
@@ -480,10 +524,18 @@ Future<void> _registerUser() async {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
+                    elevation: 3,
                   ),
                   onPressed: _isLoading ? null : _registerUser,
                   child: _isLoading
-                      ? const CircularProgressIndicator()
+                      ? const SizedBox(
+                          height: 24,
+                          width: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
+                          ),
+                        )
                       : const Text(
                           'REGISTRARSE',
                           style: TextStyle(
@@ -506,11 +558,11 @@ Future<void> _registerUser() async {
     _nameController.dispose();
     _emailController.dispose();
     _addressController.dispose();
+    _emergencyContactNameController.dispose();
     _emergencyContactController.dispose();
     _allergiesController.dispose();
     _chronicConditionsController.dispose();
     _medicationsController.dispose();
-    Database.close();
     super.dispose();
   }
 }

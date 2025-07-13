@@ -4,8 +4,11 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
 import 'ficha_medica_page.dart';
 import 'login_screen.dart';
+import 'services/database.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Database.connect();
   runApp(const ResQBandApp());
 }
 
@@ -24,37 +27,63 @@ class ResQBandApp extends StatelessWidget {
           surface: Color(0xFFF2EAED),
           onSurface: Color(0xFF38353B),
         ),
-        scaffoldBackgroundColor: Color(0xFFF2EAED),
+        scaffoldBackgroundColor: const Color(0xFFF2EAED),
       ),
       home: const LoginScreen(),
     );
   }
 }
-
 class HomePage extends StatelessWidget {
-  const HomePage({super.key});
+  final String email;
+  
+  const HomePage({super.key, required this.email});
 
-  // Llamada directa
   Future<void> _makeEmergencyCall() async {
     const phoneNumber = '6142837972';
     await FlutterPhoneDirectCaller.callNumber(phoneNumber);
   }
 
-  @override
+@override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
         children: [
           const SafeAreaMap(),
           Column(
-            children: const [
-              SafeArea(
+            children: [
+              const SafeArea(
                 child: Padding(
                   padding: EdgeInsets.all(16.0),
                   child: BraceletDropdown(),
                 ),
               ),
-              InfoCard(),
+              FutureBuilder<Map<String, dynamic>?>(
+                future: Database.getUserData(email),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError || !snapshot.hasData) {
+                    return Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 16.0),
+                      padding: const EdgeInsets.all(16.0),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(15),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Text('Error al cargar los datos'),
+                    );
+                  }
+                  return InfoCard(userData: snapshot.data!);
+                },
+              ),
             ],
           ),
         ],
@@ -86,7 +115,7 @@ class HomePage extends StatelessWidget {
               onPressed: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => const FichaMedicaPage()),
+                  MaterialPageRoute(builder: (context) =>  FichaMedicaPage(userEmail: email)),
                 );
               },
             ),
@@ -141,10 +170,15 @@ class BraceletDropdown extends StatelessWidget {
 }
 
 class InfoCard extends StatelessWidget {
-  const InfoCard({super.key});
+  final Map<String, dynamic> userData;
+  
+  const InfoCard({super.key, required this.userData});
 
   @override
   Widget build(BuildContext context) {
+    final isElderly = userData['role'] == 'Adulto Mayor';
+    final hasCaregiver = userData['linkedUserId'] != null;
+
     return GestureDetector(
       onTap: () {},
       child: Container(
@@ -165,13 +199,24 @@ class InfoCard extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'Juan Perez',
-              style: TextStyle(
+            Text(
+              userData['name'] ?? 'Nombre no disponible',
+              style: const TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
               ),
             ),
+            if (isElderly && hasCaregiver)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text(
+                  'Cuidador: ${userData['caregiver']?['name'] ?? 'No asignado'}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ),
             const SizedBox(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -180,9 +225,9 @@ class InfoCard extends StatelessWidget {
                   children: [
                     const RepaintBoundary(child: HeartBeatIcon()),
                     const SizedBox(height: 8),
-                    const Text(
-                      '78 BPM',
-                      style: TextStyle(
+                    Text(
+                      '${userData['heartRate'] ?? '--'} BPM',
+                      style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
                       ),
@@ -209,9 +254,9 @@ class InfoCard extends StatelessWidget {
                       color: Color(0xFFD66D75),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      '12:45 PM',
-                      style: TextStyle(
+                    Text(
+                      userData['updatedAt']?.toString().substring(11, 16) ?? '--:--',
+                      style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
                       ),
@@ -227,6 +272,20 @@ class InfoCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (isElderly) ...[
+              const SizedBox(height: 16),
+              const Text('Información médica:'),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (userData['bloodType'] != null)
+                    Chip(
+                      label: Text('Tipo sangre: ${userData['bloodType']}'),
+                    ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
